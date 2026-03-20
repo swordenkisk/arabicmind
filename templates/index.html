@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>عقل عربي — ArabicMind</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"/>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='28'>🧠</text></svg>"/>
+</head>
+<body>
+
+<!-- ── Navbar ──────────────────────────────────────────────── -->
+<nav class="navbar">
+  <div class="nav-brand">
+    <span class="brand-icon">🧠</span>
+    <span class="brand-ar">عقل عربي</span>
+    <span class="brand-en">ArabicMind</span>
+    <span class="brand-badge">محرك ثنائي | Dual-LLM</span>
+  </div>
+  <div class="nav-right">
+    <button class="btn-config" id="btn-config" title="الإعدادات | Settings">⚙ الإعدادات</button>
+    <a href="https://github.com/swordenkisk/arabicmind" class="btn-gh" target="_blank">GitHub 🇩🇿</a>
+  </div>
+</nav>
+
+<!-- ── Config Drawer ───────────────────────────────────────── -->
+<div class="drawer" id="config-drawer">
+  <div class="drawer-header">
+    <h3>⚙ إعداد النماذج | Model Configuration</h3>
+    <button onclick="closeDrawer()">✕</button>
+  </div>
+
+  <div class="config-section">
+    <div class="config-label">🔄 نموذج الترجمة | Translation Model <span class="badge-cheap">سريع/رخيص</span></div>
+    <div class="config-row">
+      <select id="tr-provider" class="cfg-select" onchange="updateModelList('tr')">
+        <option value="mock">Mock (تجريب)</option>
+        {% for k, v in providers.items() %}
+        <option value="{{ k }}">{{ v.name }}</option>
+        {% endfor %}
+      </select>
+      <select id="tr-model" class="cfg-select"></select>
+    </div>
+    <input type="password" id="tr-key" class="cfg-input" placeholder="API Key للترجمة..."/>
+    <div class="key-note">🔒 يُحفظ في المتصفح فقط — لا يمر بأي خادم خارجي</div>
+  </div>
+
+  <div class="config-section">
+    <div class="config-label">🧠 نموذج الاستدلال | Reasoning Model <span class="badge-power">قوي</span></div>
+    <div class="config-row">
+      <select id="rs-provider" class="cfg-select" onchange="updateModelList('rs')">
+        <option value="mock">Mock (تجريب)</option>
+        {% for k, v in providers.items() %}
+        <option value="{{ k }}">{{ v.name }}</option>
+        {% endfor %}
+      </select>
+      <select id="rs-model" class="cfg-select"></select>
+    </div>
+    <input type="password" id="rs-key" class="cfg-input" placeholder="API Key للاستدلال..."/>
+  </div>
+
+  <div class="config-section">
+    <label class="toggle-label">
+      <input type="checkbox" id="show-cot" checked/>
+      <span class="toggle-slider"></span>
+      عرض سلسلة التفكير (CoT) | Show Chain of Thought
+    </label>
+  </div>
+
+  <div class="config-actions">
+    <button class="btn-save" onclick="saveConfig()">💾 حفظ الإعدادات</button>
+    <button class="btn-test" onclick="testKeys()">🔑 اختبار المفاتيح</button>
+  </div>
+  <div id="test-result" class="test-result hidden"></div>
+</div>
+<div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
+
+<!-- ── Main Layout ─────────────────────────────────────────── -->
+<main class="main">
+
+  <!-- ── Query Bar ─────────────────────────────────────────── -->
+  <div class="query-bar">
+    <!-- Domain selector -->
+    <div class="domain-row">
+      <span class="domain-label">المجال:</span>
+      <div class="domain-chips" id="domain-chips">
+        <button class="chip active" data-domain="">🌐 تلقائي</button>
+        {% for d in domains %}
+        {% if d.key != 'general' %}
+        <button class="chip" data-domain="{{ d.key }}">{{ d.icon }} {{ d.name_ar }}</button>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Input -->
+    <div class="input-row">
+      <textarea id="query-input"
+                placeholder="اكتب سؤالك بالعربية هنا... (Ctrl+Enter للإرسال)&#10;أمثلة: اشرح خوارزمية QuickSort | احسب تكامل sin(x) | أصلح هذا الكود..."
+                rows="3" dir="auto"></textarea>
+      <button class="btn-send" id="btn-send">
+        <span id="send-label">إرسال ▶</span>
+      </button>
+    </div>
+
+    <!-- Status bar -->
+    <div class="status-bar" id="status-bar">
+      <span id="status-text" class="status-idle">جاهز | Ready</span>
+      <span id="timer-text" class="timer hidden"></span>
+    </div>
+  </div>
+
+  <!-- ── Dual Pane ──────────────────────────────────────────── -->
+  <div class="dual-pane" id="dual-pane">
+
+    <!-- Left: Arabic response (RTL) -->
+    <div class="pane pane-arabic" dir="rtl">
+      <div class="pane-header">
+        <span class="pane-title">📝 الإجابة بالعربية</span>
+        <div class="pane-badges">
+          <span class="badge-domain" id="badge-domain-ar"></span>
+          <button class="btn-copy-pane" onclick="copyPane('arabic')" title="نسخ">📋</button>
+        </div>
+      </div>
+      <div class="pane-content" id="pane-arabic">
+        <div class="pane-welcome" dir="rtl">
+          <div class="welcome-icon">🧠</div>
+          <h2>عقل عربي</h2>
+          <p>اكتب سؤالك بالعربية وسيتم معالجته بالمحرك الثنائي.</p>
+          <div class="welcome-steps">
+            <div class="step">① كتابة السؤال بالعربية</div>
+            <div class="step">② ترجمة تلقائية للإنجليزية</div>
+            <div class="step">③ استدلال عميق بالإنجليزية</div>
+            <div class="step">④ ترجمة الإجابة للعربية</div>
+          </div>
+        </div>
+      </div>
+      <!-- Translation display -->
+      <div class="query-translated hidden" id="query-translated">
+        <span class="qt-label">📤 السؤال بالإنجليزية:</span>
+        <div class="qt-text" id="qt-text" dir="ltr"></div>
+      </div>
+    </div>
+
+    <!-- Divider -->
+    <div class="pane-divider">
+      <div class="divider-line"></div>
+      <div class="divider-icon">⇌</div>
+      <div class="divider-line"></div>
+    </div>
+
+    <!-- Right: English reasoning (LTR) -->
+    <div class="pane pane-english" dir="ltr">
+      <div class="pane-header">
+        <span class="pane-title">🔍 English Reasoning (Raw)</span>
+        <div class="pane-badges">
+          <span class="badge-model" id="badge-model-en"></span>
+          <button class="btn-copy-pane" onclick="copyPane('english')" title="Copy">📋</button>
+        </div>
+      </div>
+      <div class="pane-content" id="pane-english">
+        <div class="pane-welcome" dir="ltr">
+          <div class="welcome-icon">🔬</div>
+          <h2>Raw English Reasoning</h2>
+          <p>The reasoning model's exact English thought process will appear here — unmodified, transparent.</p>
+          <div class="welcome-steps">
+            <div class="step">• See exactly what the model "thinks"</div>
+            <div class="step">• Verify reasoning accuracy in real time</div>
+            <div class="step">• Chain-of-thought steps highlighted</div>
+            <div class="step">• Catch logical errors before they reach you</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CoT panel -->
+      <div class="cot-panel hidden" id="cot-panel">
+        <div class="cot-header">💡 Chain of Thought Steps</div>
+        <div class="cot-steps" id="cot-steps"></div>
+      </div>
+    </div>
+
+  </div><!-- /dual-pane -->
+
+  <!-- ── Timing bar ─────────────────────────────────────────── -->
+  <div class="timing-bar hidden" id="timing-bar">
+    <span class="timing-item" id="t-translate">⏱ ترجمة: —</span>
+    <span class="timing-sep">|</span>
+    <span class="timing-item" id="t-reason">🧠 استدلال: —</span>
+    <span class="timing-sep">|</span>
+    <span class="timing-item" id="t-back">⏱ عودة: —</span>
+    <span class="timing-sep">|</span>
+    <span class="timing-item" id="t-total">⏱ الإجمالي: —</span>
+  </div>
+
+</main>
+
+<!-- ── Toast ──────────────────────────────────────────────── -->
+<div class="toast" id="toast"></div>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+<script>
+// Inject server data into JS
+window.PROVIDERS_DATA = {{ providers | tojson }};
+window.DOMAINS_DATA   = {{ domains | tojson }};
+</script>
+</body>
+</html>
